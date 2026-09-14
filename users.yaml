@@ -1,0 +1,8 @@
+# Demo logins — change passwords before any real deployment
+admin:
+  password: admin123
+  role: admin
+
+hr:
+  password: hr123
+  role: hr

@@ -1,0 +1,28 @@
+from openai import OpenAI
+
+from config import API_KEY, BASE_URL, EMBED_MODEL, MODEL
+
+if not API_KEY:
+    raise SystemExit("Set COGENT_OPRNROUTER_KEY in the repo root .env")
+
+client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    response = client.embeddings.create(model=EMBED_MODEL, input=texts)
+    ordered = sorted(response.data, key=lambda item: item.index)
+    return [item.embedding for item in ordered]
+
+
+def embed_query(text: str) -> list[float]:
+    return embed_texts([text])[0]
+
+
+def chat(messages, max_tokens=600) -> str:
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        temperature=0,
+        max_tokens=max_tokens,
+    )
+    return (response.choices[0].message.content or "").strip()
