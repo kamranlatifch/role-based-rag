@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from auth import authenticate
-from rag.answer import answer_question, is_small_talk
+from rag.answer import is_small_talk, prepare_answer_stream
 from rag.ingest import ingest_role
 
 st.set_page_config(page_title="Role RAG Chat", page_icon="🔐", layout="wide")
@@ -144,16 +144,16 @@ def _chat_page():
     with st.chat_message("assistant"):
         spinner = "Thinking..." if is_small_talk(prompt) else "Searching ..."
         with st.spinner(spinner):
-            result = answer_question(role, prompt, history=history)
-        st.markdown(result["answer"])
-        if result.get("sources"):
-            st.caption(f"Sources: {', '.join(result['sources'])}")
+            prepared = prepare_answer_stream(role, prompt, history=history)
+        answer = st.write_stream(prepared["stream"])
+        if prepared.get("sources"):
+            st.caption(f"Sources: {', '.join(prepared['sources'])}")
 
     st.session_state.messages.append(
         {
             "role": "assistant",
-            "content": result["answer"],
-            "sources": result["sources"],
+            "content": answer,
+            "sources": prepared["sources"],
         }
     )
 

@@ -1,7 +1,7 @@
 import re
 
 from config import MAX_HISTORY_TURNS, TOP_K
-from rag.client import chat
+from rag.client import chat, chat_stream
 from rag.retrieve import format_context, retrieve
 
 RAG_SYSTEM = (
@@ -86,41 +86,60 @@ def _rewrite_query(question: str, history: list[dict]) -> str:
     return rewritten.strip() or question
 
 
-def _chat_reply(question: str, history: list[dict], role: str) -> str:
-    return chat(
-        [
-            {"role": "system", "content": f"{CHAT_SYSTEM}\nUser role: {role}"},
-            *_api_history(history),
-            {"role": "user", "content": question},
-        ]
-    )
+def _answer_messages(role: str, question: str, history: list[dict], hits: list[dict]) -> list[dict]:
+    context = format_context(hits)
+    return [
+        {"role": "system", "content": RAG_SYSTEM},
+        *_api_history(history),
+        {
+            "role": "user",
+            "content": (
+                f"User role: {role}\n\n"
+                f"PASSAGES:\n{context}\n\n"
+                f"Question: {question}"
+            ),
+        },
+    ]
+
+
+def _small_talk_messages(question: str, history: list[dict], role: str) -> list[dict]:
+    return [
+        {"role": "system", "content": f"{CHAT_SYSTEM}\nUser role: {role}"},
+        *_api_history(history),
+        {"role": "user", "content": question},
+    ]
 
 
 def answer_question(role: str, question: str, history: list[dict] | None = None) -> dict:
+    prepared = prepare_answer_stream(role, question, history)
+    answer = "".join(prepared["stream"])
+    return {
+        "answer": answer,
+        "sources": prepared["sources"],
+        "hits": prepared["hits"],
+        "used_rag": prepared["used_rag"],
+    }
+
+
+def prepare_answer_stream(role: str, question: str, history: list[dict] | None = None) -> dict:
+    """Retrieve context synchronously, then stream the final LLM reply."""
     history = history or []
 
     if is_small_talk(question):
-        reply = _chat_reply(question, history, role)
-        return {"answer": reply, "sources": [], "hits": [], "used_rag": False}
+        return {
+            "sources": [],
+            "hits": [],
+            "used_rag": False,
+            "stream": chat_stream(_small_talk_messages(question, history, role)),
+        }
 
     search_query = _rewrite_query(question, history) if _needs_rewrite(question, history) else question
     top_k = TOP_K + 2 if _needs_rewrite(question, history) else TOP_K
     hits = retrieve(role, search_query, top_k=top_k)
-    context = format_context(hits)
-
-    reply = chat(
-        [
-            {"role": "system", "content": RAG_SYSTEM},
-            *_api_history(history),
-            {
-                "role": "user",
-                "content": (
-                    f"User role: {role}\n\n"
-                    f"PASSAGES:\n{context}\n\n"
-                    f"Question: {question}"
-                ),
-            },
-        ]
-    )
     sources = sorted({h["label"] for h in hits})
-    return {"answer": reply, "sources": sources, "hits": hits, "used_rag": True}
+    return {
+        "sources": sources,
+        "hits": hits,
+        "used_rag": True,
+        "stream": chat_stream(_answer_messages(role, question, history, hits)),
+    }

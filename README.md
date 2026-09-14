@@ -11,7 +11,7 @@ Built with **Streamlit**, **ChromaDB**, and **OpenRouter** (Gemini + embeddings)
 - Role-based login (`admin` vs `hr`)
 - PDF policy documents per role under `data/<role>/`
 - RAG pipeline: chunk → embed → store in Chroma → retrieve → answer with LLM
-- Streamlit chat UI with source citations
+- Streamlit chat UI with streaming responses and source citations
 - Deployable to **Streamlit Community Cloud** (free)
 
 ---

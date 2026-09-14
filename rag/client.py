@@ -26,3 +26,17 @@ def chat(messages, max_tokens=600) -> str:
         max_tokens=max_tokens,
     )
     return (response.choices[0].message.content or "").strip()
+
+
+def chat_stream(messages, max_tokens=600):
+    stream = client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        temperature=0,
+        max_tokens=max_tokens,
+        stream=True,
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
