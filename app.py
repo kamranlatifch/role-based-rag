@@ -67,8 +67,10 @@ def _login_page():
 
 
 def _ensure_index(role: str) -> bool:
-    from rag.store import get_collection
+    from rag.store import bundled_index_available, get_collection
 
+    if bundled_index_available(role):
+        return True
     try:
         return get_collection(role).count() > 0
     except Exception:
@@ -88,11 +90,15 @@ def _chat_page():
 
         st.divider()
         st.subheader("Index")
-        if _ensure_index(role):
+        from rag.store import bundled_index_available
+
+        if bundled_index_available(role):
+            st.success(f"Pre-built index ready for `{role}`")
+        elif _ensure_index(role):
             st.success(f"Index ready for `{role}`")
         else:
             st.warning("No index yet — click Build index below.")
-        if st.button(f"Build index for {role}"):
+        if not bundled_index_available(role) and st.button(f"Build index for {role}"):
             with st.spinner("Embedding documents..."):
                 n = ingest_role(role)
             st.success(f"Indexed {n} chunks.")

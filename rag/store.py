@@ -1,21 +1,62 @@
+import os
 import shutil
 
 import chromadb
 
-from config import COLLECTION_PREFIX, INDEX_DIR
+from config import COLLECTION_PREFIX, INDEX_DIR, ROOT
+
+BUNDLED_INDEX_DIR = ROOT / "index"
+_ephemeral_client: chromadb.EphemeralClient | None = None
+
+
+def _on_cloud() -> bool:
+    return os.getenv("STREAMLIT_RUNTIME_ENVIRONMENT") == "cloud" or (ROOT / "app.py").as_posix().startswith("/mount/src/")
+
+
+def bundled_index_available(role: str) -> bool:
+    return (BUNDLED_INDEX_DIR / role / "chroma.sqlite3").is_file()
+
+
+def _collection_metadata() -> dict:
+    return {"hnsw:space": "cosine", "hnsw:sync_threshold": 100000}
 
 
 def collection_name(role: str) -> str:
     return f"{COLLECTION_PREFIX}{role}"
 
 
-def get_client(role: str):
+def _ephemeral_client() -> chromadb.EphemeralClient:
+    global _ephemeral_client
+    if _ephemeral_client is None:
+        _ephemeral_client = chromadb.EphemeralClient()
+    return _ephemeral_client
+
+
+def _materialize_bundled_index(role: str) -> bool:
+    """Copy committed Chroma files from the repo into writable storage on Cloud."""
+    src = BUNDLED_INDEX_DIR / role
+    dst = INDEX_DIR / role
+    if not src.is_dir():
+        return False
+    INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+    return True
+
+
+def _persistent_client(role: str):
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
     return chromadb.PersistentClient(path=str(INDEX_DIR / role))
 
 
-def _collection_metadata() -> dict:
-    return {"hnsw:space": "cosine", "hnsw:sync_threshold": 100000}
+def get_client(role: str):
+    if _on_cloud():
+        if bundled_index_available(role):
+            _materialize_bundled_index(role)
+            return _persistent_client(role)
+        return _ephemeral_client()
+    return _persistent_client(role)
 
 
 def get_collection(role: str):
@@ -24,12 +65,21 @@ def get_collection(role: str):
 
 
 def reset_and_get_collection(role: str):
-    """Drop the role's on-disk index and return a fresh empty collection."""
+    """Drop the role index and return a fresh empty collection."""
+    if _on_cloud() and not bundled_index_available(role):
+        client = _ephemeral_client()
+        name = collection_name(role)
+        try:
+            client.delete_collection(name)
+        except Exception:
+            pass
+        return client.create_collection(name, metadata=_collection_metadata())
+
     role_path = INDEX_DIR / role
     if role_path.exists():
         shutil.rmtree(role_path)
-    client = get_client(role)
-    return client.get_or_create_collection(collection_name(role), metadata=_collection_metadata())
+    client = _persistent_client(role)
+    return client.create_collection(collection_name(role), metadata=_collection_metadata())
 
 
 def upsert(role: str, ids: list[str], documents: list[str], embeddings: list[list[float]], metadatas: list[dict]):
